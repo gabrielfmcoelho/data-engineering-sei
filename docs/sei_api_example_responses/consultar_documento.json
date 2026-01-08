@@ -1,0 +1,47 @@
+{
+  "IdProcedimento": "23773802",
+  "ProcedimentoFormatado": "00002.012459/2025-01",
+  "IdDocumento": "23963764",
+  "DocumentoFormatado": "0021587224",
+  "LinkAcesso": "https://sei.pi.gov.br/sei/controlador.php?acao=procedimento_trabalhar&id_procedimento=23773802&id_documento=23963764",
+  "Serie": {
+    "IdSerie": "574",
+    "Nome": "SEAD_AUTORIZAÇÃO_DO_SECRETÁRIO",
+    "Aplicabilidade": ""
+  },
+  "Numero": "13650",
+  "Descricao": "Autorização de pagamento de curso",
+  "Data": "11/12/2025",
+  "UnidadeElaboradora": {
+    "IdUnidade": "110008627",
+    "Sigla": "SEAD-PI/GAB/ASTECGAB2",
+    "Descricao": "Assessoria Técnica do Gabinete 2 - SEAD-PI"
+  },
+  "AndamentoGeracao": {
+    "Descricao": "Gerado documento público 0021587224 (SEAD_AUTORIZAÇÃO_DO_SECRETÁRIO 13650)",
+    "DataHora": "11/12/2025 08:59:40",
+    "Unidade": {
+      "IdUnidade": "110008627",
+      "Sigla": "SEAD-PI/GAB/ASTECGAB2",
+      "Descricao": "Assessoria Técnica do Gabinete 2 - SEAD-PI"
+    },
+    "Usuario": {
+      "IdUsuario": "100002879",
+      "Sigla": "idelfrancio.costa@sead.pi.gov.br",
+      "Nome": "IDELFRANCIO CAVALCANTE DA COSTA   Matr.0143250-8"
+    }
+  },
+  "Assinaturas": [
+    {
+      "Nome": "BRUNO GOMES OLIVEIRA DE MORAES - Matr.0382929-4",
+      "CargoFuncao": "Secretário da Administração Substituto",
+      "DataHora": "11/12/2025 10:06:16",
+      "IdUsuario": "100028589",
+      "IdOrigem": "89102037300",
+      "Orgao": "SEAD-PI",
+      "Sigla": "bruno.moraes@sead.pi.gov.br"
+    }
+  ],
+  "Publicacao": {},
+  "Campos": []
+}

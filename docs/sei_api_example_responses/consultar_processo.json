@@ -1,0 +1,60 @@
+{
+  "IdProcedimento": "23777370",
+  "ProcedimentoFormatado": "00002.012471/2025-15",
+  "Especificacao": "Portaria para abertura de processos de gestão de ativos - SIPAT 18567 - Teresina",
+  "DataAutuacao": "28/11/2025",
+  "LinkAcesso": "https://sei.pi.gov.br/sei/controlador.php?acao=procedimento_trabalhar&id_procedimento=23777370",
+  "TipoProcedimento": {
+    "IdTipoProcedimento": "100000296",
+    "Nome": "SEAD: Gestão de Patrimônio"
+  },
+  "AndamentoGeracao": {
+    "Descricao": "Processo restrito gerado, Documento Preparatório (Art. 7º, § 3º, da Lei nº 12.527/2011)",
+    "DataHora": "28/11/2025 17:41:37",
+    "Unidade": {
+      "IdUnidade": "110008230",
+      "Sigla": "SEAD-PI/GAB/SPI/DGPAT/AGG",
+      "Descricao": "Assessoria de Gestão Governamental  - SEAD-PI"
+    },
+    "Usuario": {
+      "IdUsuario": "100000177",
+      "Sigla": "claudia.ferraz@sead.pi.gov.br",
+      "Nome": "CLÁUDIA CRISTINA RIBEIRO MACHADO FERRAZ - Matr.0307969-4"
+    }
+  },
+  "AndamentoConclusao": {},
+  "UltimoAndamento": {
+    "Descricao": "Processo restrito gerado, Documento Preparatório (Art. 7º, § 3º, da Lei nº 12.527/2011)",
+    "DataHora": "28/11/2025 17:41:37",
+    "Unidade": {
+      "IdUnidade": "110008230",
+      "Sigla": "SEAD-PI/GAB/SPI/DGPAT/AGG",
+      "Descricao": "Assessoria de Gestão Governamental  - SEAD-PI"
+    },
+    "Usuario": {
+      "IdUsuario": "100000177",
+      "Sigla": "claudia.ferraz@sead.pi.gov.br",
+      "Nome": "CLÁUDIA CRISTINA RIBEIRO MACHADO FERRAZ - Matr.0307969-4"
+    }
+  },
+  "UnidadesProcedimentoAberto": [
+    {
+      "Unidade": {
+        "IdUnidade": "110008230",
+        "Sigla": "SEAD-PI/GAB/SPI/DGPAT/AGG",
+        "Descricao": "Assessoria de Gestão Governamental  - SEAD-PI"
+      },
+      "UsuarioAtribuicao": {}
+    }
+  ],
+  "Assuntos": [
+    {
+      "Descricao": "PATRIMÔNIO (Bens Imóveis, Veículos e Semoventes pertencentes ao Órgão) (inclusive Normas, Regulamentações, Diretrizes, Procedimentos, Estudos e/ou Decisões de Caráter Geral)",
+      "CodigoEstruturado": "040"
+    }
+  ],
+  "Interessados": [],
+  "Observacoes": [],
+  "ProcedimentosRelacionados": [],
+  "ProcedimentosAnexados": []
+}

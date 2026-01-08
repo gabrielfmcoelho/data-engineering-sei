@@ -1,0 +1,23 @@
+{
+  "IdAndamento": "132404740",
+  "Tarefa": "PROCESSO-REMETIDO-UNIDADE",
+  "Descricao": "Processo remetido pela unidade <a href=\"javascript:void(0);\" alt=\"Diretoria de Logística e Abastecimento - DLOG\" title=\"Diretoria de Logística e Abastecimento - DLOG\" class=\"ancoraSigla\">SEAD-PI/GAB/SGACG/DLOG</a>",
+  "DataHora": "01/12/2025 09:39:28",
+  "Unidade": {
+    "IdUnidade": "110006445",
+    "Sigla": "SEAD-PI/GAB/SGACG/DLOG/GAEC",
+    "Descricao": "Gerência de Acompanhamento da Execução de Contratos - SEAD-PI"
+  },
+  "Usuario": {
+    "IdUsuario": "100010663",
+    "Sigla": "annderson.bandeira@sead.pi.gov.br",
+    "Nome": "ANNDERSON FELIPE BANDEIRA SILVA - Matr.372260-X"
+  },
+  "Atributos": [
+    {
+      "Nome": "UNIDADE",
+      "Valor": "SEAD-PI/GAB/SGACG/DLOG¥Diretoria de Logística e Abastecimento - DLOG",
+      "IdOrigem": "110006442"
+    }
+  ]
+}

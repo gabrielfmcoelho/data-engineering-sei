@@ -1,0 +1,35 @@
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+alembic==1.13.1
+
+# Async/Concurrency
+asyncio==3.4.3
+aiohttp==3.9.1
+asyncpg==0.29.0
+tenacity==8.2.3
+
+# Redis
+redis==5.0.1
+
+# MinIO
+minio==7.2.3
+
+# Neo4J
+neo4j==5.16.0
+
+# Configuration
+python-dotenv==1.0.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# CLI
+click==8.1.7
+rich==13.7.0
+tqdm==4.66.1
+
+# Logging
+loguru==0.7.2
+
+# Utils
+python-dateutil==2.8.2
