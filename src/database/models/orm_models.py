@@ -96,7 +96,7 @@ class SeiUnidade(ORMBase):
     sigla_unidade = Column(String(50))
     nome_unidade = Column(String(255), nullable=False)
     nivel_unidade = Column(Integer)
-    id_orgao = Column(Integer, ForeignKey('sei_orgaos.id_orgao'))
+    id_orgao = Column(Integer, ForeignKey('sei_orgaos.id'))
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
 )
