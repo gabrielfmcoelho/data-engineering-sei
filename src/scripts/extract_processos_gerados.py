@@ -13,11 +13,14 @@ from pathlib import Path
 # Adiciona o diretório raiz ao path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from loguru import logger
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from typing import List, Dict, Any
+from datetime import datetime
+
+import time
 
 from src.config import settings
 from src.database.session import get_sei_session, get_local_session
@@ -103,11 +106,17 @@ def extract_and_load():
         local_session.commit()
         logger.success("Tabela limpa!")
 
-    # Processa em batches
+    # Processa em batches com keyset pagination
     batch_size = settings.batch_size
-    total_batches = (total_records + batch_size - 1) // batch_size
-    offset = 0
     total_inserted = 0
+    last_id = 0  # Keyset pagination: start from id > 0
+
+    # Prepare raw SQL insert statement for better performance
+    insert_sql = text("""
+        INSERT INTO sei_processos_temp_etl
+        (protocol, id_protocolo, data_hora, tipo_procedimento, unidade, created_at)
+        VALUES (:protocol, :id_protocolo, :data_hora, :tipo_procedimento, :unidade, :created_at)
+    """)
 
     with Progress(
         SpinnerColumn(),
@@ -122,45 +131,67 @@ def extract_and_load():
             total=total_records
         )
 
-        for batch_num in range(1, total_batches + 1):
-            logger.debug(f"Processando batch {batch_num}/{total_batches} (offset: {offset})")
+        total_read_time = 0.0
+        total_insert_time = 0.0
+        batch_num = 0
 
-            # Extrai batch do SEI e prepara dados (dentro da sessão para evitar detached instances)
+        while True:
+            batch_num += 1
+            logger.debug(f"Processando batch {batch_num} (last_id: {last_id})")
+
+            # Extrai batch do SEI usando keyset pagination (WHERE id > last_id)
             records_to_insert: List[Dict[str, Any]] = []
 
+            read_start = time.perf_counter()
             with get_sei_session() as sei_session:
                 stmt = (
                     select(SeiAtividades)
                     .where(SeiAtividades.descricao_replace == descricao_filter)
-                    .offset(offset)
+                    .where(SeiAtividades.id > last_id)
+                    .order_by(SeiAtividades.id)
                     .limit(batch_size)
                 )
                 atividades = sei_session.execute(stmt).scalars().all()
 
                 # Extrai dados DENTRO da sessão, enquanto os objetos ainda estão atachados
+                now = datetime.utcnow()
                 for atividade in atividades:
                     records_to_insert.append({
                         'protocol': atividade.protocolo_formatado,
-                        'id_protocolo': atividade.id_protocolo,
+                        'id_protocolo': str(atividade.id_protocolo),  # Convert to string for the table
                         'data_hora': atividade.data_hora,
                         'tipo_procedimento': atividade.tipo_procedimento,
                         'unidade': atividade.unidade,
+                        'created_at': now,
                     })
+                    last_id = atividade.id  # Update cursor for next batch
+
+            read_elapsed = time.perf_counter() - read_start
+            total_read_time += read_elapsed
 
             if not records_to_insert:
                 break
 
-            # Insere no banco local
-            with get_local_session() as local_session:
-                local_session.bulk_insert_mappings(SeiProcessoTempETL, records_to_insert)
-                local_session.commit()
+            # Insere no banco local usando raw SQL executemany
+            insert_start = time.perf_counter()
+            engine = get_local_engine()
+            with engine.begin() as conn:
+                conn.execute(insert_sql, records_to_insert)
+            insert_elapsed = time.perf_counter() - insert_start
+            total_insert_time += insert_elapsed
 
             batch_inserted = len(records_to_insert)
             total_inserted += batch_inserted
-            offset += batch_size
 
             progress.update(task, advance=batch_inserted)
-            logger.debug(f"Batch {batch_num} inserido: {batch_inserted} registros")
+            logger.debug(f"Batch {batch_num}: read={read_elapsed:.2f}s, insert={insert_elapsed:.2f}s")
+
+        # Print timing summary
+        console.print(f"\n[bold yellow]⏱ Timing Summary:[/bold yellow]")
+        console.print(f"  [cyan]Total READ time (SEI DB):    {total_read_time:.2f}s[/cyan]")
+        console.print(f"  [cyan]Total INSERT time (Local DB): {total_insert_time:.2f}s[/cyan]")
+        read_pct = (total_read_time / (total_read_time + total_insert_time)) * 100 if (total_read_time + total_insert_time) > 0 else 0
+        console.print(f"  [yellow]Bottleneck: {'READ (SEI)' if read_pct > 50 else 'INSERT (Local)'} ({read_pct:.1f}% read / {100-read_pct:.1f}% insert)[/yellow]")
 
     console.print(f"\n[bold green]✓ Extração concluída com sucesso![/bold green]")
     console.print(f"[bold green]  Total de registros inseridos: {total_inserted:,}[/bold green]\n")
