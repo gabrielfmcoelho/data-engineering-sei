@@ -1,5 +1,12 @@
 """
-Script para extrair processos gerados do banco SEI e salvar no banco local.
+Script otimizado para extrair processos gerados do banco SEI e salvar no banco local.
+
+Otimizações implementadas:
+1. Keyset pagination (cursor-based) em vez de OFFSET/LIMIT - O(1) vs O(n)
+2. Server-side cursor para streaming de grandes volumes
+3. Conexões persistentes (reutilização de sessões)
+4. COPY protocol para bulk inserts (mais rápido que INSERT)
+5. Processamento em chunks maiores
 
 Este script:
 1. Conecta ao banco SEI (origem)
@@ -8,7 +15,9 @@ Este script:
 4. Salva no banco local na tabela sei_processos_temp_etl
 """
 import sys
+import io
 from pathlib import Path
+from datetime import datetime, timezone
 
 # Adiciona o diretório raiz ao path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -23,14 +32,15 @@ from datetime import datetime
 import time
 
 from src.config import settings
-from src.database.session import get_sei_session, get_local_session
-from src.database.models.declarative_models import SeiAtividades
-from src.database.models.orm_models import SeiProcessoTempETL  # Modelo do banco local (destino)
-from src.database.base import ORMBase as ORMBase
-from src.database.session import get_local_engine
+from src.database.session import get_sei_engine, get_local_engine
+from src.database.models.orm_models import SeiProcessoTempETL
+from src.database.base import ORMBase
 
 
 console = Console()
+
+# Descrição exata a ser filtrada
+DESCRICAO_FILTER = "Processo @NIVEL_ACESSO@@GRAU_SIGILO@ gerado@DATA_AUTUACAO@@HIPOTESE_LEGAL@"
 
 
 def setup_logger():
@@ -57,47 +67,129 @@ def create_tables_if_not_exists():
     logger.success("Tabelas verificadas/criadas com sucesso!")
 
 
-def get_total_count() -> int:
-    """Retorna o total de registros a serem extraídos."""
-    descricao_filter = "Processo @NIVEL_ACESSO@@GRAU_SIGILO@ gerado@DATA_AUTUACAO@@HIPOTESE_LEGAL@"
-
-    with get_sei_session() as session:
-        stmt = select(func.count()).select_from(SeiAtividades).where(
-            SeiAtividades.descricao_replace == descricao_filter
+def get_total_count(sei_engine) -> int:
+    """Retorna o total de registros a serem extraídos usando conexão existente."""
+    with sei_engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                SELECT COUNT(*)
+                FROM sei_processo.sei_atividades
+                WHERE descricao_replace = :desc
+            """),
+            {"desc": DESCRICAO_FILTER}
         )
-        total = session.execute(stmt).scalar()
-
-    return total
+        return result.scalar()
 
 
-def extract_and_load():
-    """Extrai dados do SEI e carrega no banco local."""
-    setup_logger()
+def get_min_max_id(sei_engine) -> tuple[int, int]:
+    """Retorna o ID mínimo e máximo dos registros filtrados."""
+    with sei_engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                SELECT MIN(id), MAX(id)
+                FROM sei_processo.sei_atividades
+                WHERE descricao_replace = :desc
+            """),
+            {"desc": DESCRICAO_FILTER}
+        )
+        row = result.fetchone()
+        return (row[0] or 0, row[1] or 0)
 
-    console.print("\n[bold cyan]═══════════════════════════════════════════════════════════[/bold cyan]")
-    console.print("[bold cyan]  Extração de Processos Gerados - SEI Estado do Piauí  [/bold cyan]")
-    console.print("[bold cyan]═══════════════════════════════════════════════════════════[/bold cyan]\n")
 
-    # Cria tabelas
-    create_tables_if_not_exists()
+def get_min_max_data_hora(sei_engine) -> tuple[datetime | None, datetime | None]:
+    """Retorna a data mínima e máxima de criação dos processos filtrados."""
+    with sei_engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                SELECT MIN(data_hora), MAX(data_hora)
+                FROM sei_processo.sei_atividades
+                WHERE descricao_replace = :desc
+            """),
+            {"desc": DESCRICAO_FILTER}
+        )
+        row = result.fetchone()
+        return (row[0], row[1])
 
-    # Descrição exata a ser filtrada
-    descricao_filter = "Processo @NIVEL_ACESSO@@GRAU_SIGILO@ gerado@DATA_AUTUACAO@@HIPOTESE_LEGAL@"
 
-    logger.info(f"Conectando ao banco SEI em {settings.sei_db_host}...")
-    logger.info(f"Filtrando por descricao_replace = '{descricao_filter}'")
+def truncate_destination_table(local_engine):
+    """Limpa tabela destino usando TRUNCATE (mais rápido que DELETE)."""
+    logger.info("Limpando tabela de destino com TRUNCATE...")
+    with local_engine.connect() as conn:
+        conn.execute(text("TRUNCATE TABLE sei_processos_temp_etl RESTART IDENTITY"))
+        conn.commit()
+    logger.success("Tabela limpa!")
 
-    # Conta total de registros
-    console.print("[yellow]Contando registros no banco SEI...[/yellow]")
-    total_records = get_total_count()
+
+def copy_batch_to_local(local_engine, records: list[dict]):
+    """
+    Insere batch usando COPY protocol (mais rápido que INSERT).
+    Usa StringIO para criar um buffer CSV em memória.
+    """
+    if not records:
+        return 0
+
+    # Cria buffer CSV em memória
+    buffer = io.StringIO()
+    now = datetime.now(timezone.utc).isoformat()
+
+    for rec in records:
+        # Escapa valores para formato COPY (tab-separated)
+        protocol = rec['protocol'] or ''
+        id_protocolo = str(rec['id_protocolo']) if rec['id_protocolo'] else ''
+        data_hora = rec['data_hora'].isoformat() if rec['data_hora'] else ''
+        tipo_procedimento = (rec['tipo_procedimento'] or '').replace('\t', ' ').replace('\n', ' ')
+        unidade = (rec['unidade'] or '').replace('\t', ' ').replace('\n', ' ')
+
+        buffer.write(f"{protocol}\t{id_protocolo}\t{data_hora}\t{tipo_procedimento}\t{unidade}\t{now}\n")
+
+    buffer.seek(0)
+
+    # Usa raw connection para COPY
+    raw_conn = local_engine.raw_connection()
+    try:
+        cursor = raw_conn.cursor()
+        cursor.copy_from(
+            buffer,
+            'sei_processos_temp_etl',
+            columns=('protocol', 'id_protocolo', 'data_hora', 'tipo_procedimento', 'unidade', 'created_at'),
+            sep='\t'
+        )
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
+
+    return len(records)
+
+
+def extract_with_keyset_pagination(sei_engine, local_engine, batch_size: int = 5000):
+    """
+    Extrai dados usando keyset pagination (cursor-based).
+
+    Vantagens sobre OFFSET/LIMIT:
+    - Performance constante O(1) independente do offset
+    - Não "pula" registros se houver inserções durante a extração
+    - Muito mais eficiente para grandes volumes de dados
+    """
+    # Obtém estatísticas
+    console.print("[yellow]Obtendo estatísticas do banco SEI...[/yellow]")
+    total_records = get_total_count(sei_engine)
+    min_id, max_id = get_min_max_id(sei_engine)
+    min_data, max_data = get_min_max_data_hora(sei_engine)
 
     if total_records == 0:
         console.print("[red]Nenhum registro encontrado com o filtro especificado![/red]")
         logger.warning("Nenhum registro encontrado para extração")
-        return
+        return 0
 
-    console.print(f"[green]Total de registros encontrados: {total_records:,}[/green]\n")
-    logger.info(f"Total de registros a serem extraídos: {total_records:,}")
+    # Formata datas para exibição
+    min_data_str = min_data.strftime("%d/%m/%Y %H:%M") if min_data else "N/A"
+    max_data_str = max_data.strftime("%d/%m/%Y %H:%M") if max_data else "N/A"
+
+    console.print(f"[green]Total de registros: {total_records:,}[/green]")
+    console.print(f"[green]Range de IDs: {min_id:,} - {max_id:,}[/green]")
+    console.print(f"[green]Período dos processos: {min_data_str} até {max_data_str}[/green]\n")
+    logger.info(f"Total: {total_records:,} | IDs: {min_id} - {max_id}")
+    logger.info(f"Período dos processos coletados: {min_data_str} até {max_data_str}")
 
     # Limpa tabela destino antes de inserir
     with get_local_session() as local_session:
@@ -123,11 +215,12 @@ def extract_and_load():
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
+        TimeElapsedColumn(),
         console=console
     ) as progress:
 
         task = progress.add_task(
-            f"[cyan]Extraindo e carregando (batch size: {batch_size})...",
+            f"[cyan]Extraindo (batch: {batch_size:,})...",
             total=total_records
         )
 
@@ -198,16 +291,34 @@ def extract_and_load():
 
     logger.success(f"Extração finalizada: {total_inserted:,} registros inseridos")
 
-    # Mostra estatísticas
-    with get_local_session() as session:
-        total_local = session.query(func.count(SeiProcessoTempETL.id)).scalar()
+    # Mostra estatísticas finais
+    with local_engine.connect() as conn:
+        result = conn.execute(text("SELECT COUNT(*) FROM sei_processos_temp_etl"))
+        total_local = result.scalar()
         console.print(f"[cyan]Registros na tabela local: {total_local:,}[/cyan]\n")
 
 
 def main():
     """Função principal."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Extração otimizada de processos gerados do SEI")
+    parser.add_argument(
+        "--cursor",
+        action="store_true",
+        help="Usa server-side cursor (recomendado para volumes muito grandes)"
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Tamanho do batch (default: settings.batch_size)"
+    )
+
+    args = parser.parse_args()
+
     try:
-        extract_and_load()
+        extract_and_load(use_server_cursor=args.cursor)
     except KeyboardInterrupt:
         console.print("\n[yellow]Processo interrompido pelo usuário.[/yellow]")
         logger.warning("Processo interrompido pelo usuário")

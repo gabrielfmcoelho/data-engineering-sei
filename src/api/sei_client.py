@@ -81,6 +81,9 @@ class SeiAPIClient:
         # Unidades disponíveis (sigla -> id)
         self._unidades: Dict[str, str] = {}
 
+        # Cache de unidades por órgão (evita recálculo)
+        self._unidades_por_orgao_cache: Dict[str, List[tuple]] = {}
+
         # Session
         self._session: Optional[aiohttp.ClientSession] = None
 
@@ -155,12 +158,18 @@ class SeiAPIClient:
     async def get_all_unidades_do_orgao(self, orgao_prefix: str) -> List[tuple]:
         """Obtém todas as unidades disponíveis de um órgão específico.
 
+        Usa cache para evitar recálculo em chamadas repetidas.
+
         Args:
             orgao_prefix: Prefixo do órgão (ex: "SEAD-PI", "SEDUC-PI")
 
         Returns:
             Lista de tuplas (sigla, id_unidade) ordenadas por especificidade
         """
+        # Verifica cache primeiro
+        if orgao_prefix in self._unidades_por_orgao_cache:
+            return self._unidades_por_orgao_cache[orgao_prefix]
+
         # Garante que temos as unidades carregadas
         if not self._unidades:
             await self._get_token()
@@ -175,6 +184,9 @@ class SeiAPIClient:
         # Ordena por número de níveis (mais específicas primeiro)
         # Ex: "SEAD-PI/GAB/SUPARC" vem antes de "SEAD-PI/GAB"
         unidades_orgao.sort(key=lambda x: x[0].count('/'), reverse=True)
+
+        # Armazena no cache
+        self._unidades_por_orgao_cache[orgao_prefix] = unidades_orgao
 
         return unidades_orgao
 
@@ -228,6 +240,9 @@ class SeiAPIClient:
                         for unidade in unidades_list
                         if unidade.get('Sigla') and unidade.get('Id')
                     }
+
+                    # Limpa cache de unidades por órgão (será recalculado sob demanda)
+                    self._unidades_por_orgao_cache.clear()
 
                     logger.success(
                         f"Autenticado com sucesso (token expira em ~1h). "
@@ -473,7 +488,7 @@ class SeiAPIClient:
             Lista completa de documentos
         """
         endpoint = f"/v1/unidades/{id_unidade}/procedimentos/documentos"
-        itens_por_pagina = 15
+        itens_por_pagina = 200
 
         # Primeira requisição para obter Info
         params = {
@@ -555,7 +570,7 @@ class SeiAPIClient:
             Lista completa de andamentos
         """
         endpoint = f"/v1/unidades/{id_unidade}/procedimentos/andamentos"
-        itens_por_pagina = 100
+        itens_por_pagina = 200
 
         # Primeira requisição para obter Info
         params = {
@@ -647,16 +662,18 @@ class SeiAPIClient:
     async def baixar_documento(
         self,
         id_unidade: str,
-        protocolo_documento: str
-    ) -> bytes:
+        protocolo_documento: str,
+        return_headers: bool = False
+    ) -> bytes | tuple[bytes, dict]:
         """Baixa conteúdo binário de um documento.
 
         Args:
             id_unidade: ID da unidade
             protocolo_documento: Protocolo do documento
+            return_headers: Se True, retorna tupla (content, headers)
 
         Returns:
-            Conteúdo binário do documento
+            Conteúdo binário do documento, ou tupla (content, headers) se return_headers=True
         """
         async with self.semaphore:
             token = await self._get_token()
@@ -673,7 +690,13 @@ class SeiAPIClient:
                     response.raise_for_status()
                     content = await response.read()
                     logger.success(f"Documento baixado: {len(content)} bytes")
-                    return content
+
+                    if return_headers:
+                        # Retorna conteúdo e headers (incluindo content-disposition)
+                        response_headers = dict(response.headers)
+                        return content, response_headers
+                    else:
+                        return content
 
             except aiohttp.ClientError as e:
                 logger.error(f"Erro ao baixar documento {protocolo_documento}: {e}")
